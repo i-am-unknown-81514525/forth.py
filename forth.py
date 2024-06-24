@@ -1,7 +1,116 @@
 import sys
+from enum import IntEnum
 
 class InvalidStructure(Exception): ...
 
+class Type(IntEnum):
+    INVALID = 0
+    QUOTE = 1
+    BUILTIN = 2
+    FUNC = 3
+    VALUE = 4
+
+
+def validator(instruction: str, funcs: dict[str, list[str]]):
+    if instruction.startswith('."') and instruction.endswith('"'):
+        return Type.QUOTE
+    if instruction in ['if', 'else', 'then', '.', '+', '-', '*', '/', 'swap', 'dup', 'mod', 'depth', 'clearstack', '=', '>', '<']:
+        return Type.BUILTIN
+    if instruction in funcs:
+        return Type.FUNC
+    try:
+        int(instruction)
+        return Type.VALUE
+    except ValueError:
+        ...
+    return Type.INVALID
+
+def instruction_splitter(multi_instruction: str) -> list[str]:
+    quote_mode: bool = False
+    quote = ""
+    out_instructions = []
+    for i in multi_instruction.split(' '):
+        if quote_mode:
+            if '"' in i:
+                splited = i.split('"', maxsplit=1)
+                quote += splited[0]
+                out_instructions.append(f'." {quote}"')
+                quote_mode = False
+                if len(splited)==2:
+                    i = i.split('"', maxsplit=1)[1]
+                else:
+                    continue
+            else:
+                quote += f'{i} '
+                continue
+        if i == '."' and not quote_mode:
+            quote_mode = True
+            quote = ""
+            continue
+        if not quote_mode:
+            out_instructions.append(i)
+    return [i for i in out_instructions if i]
+
+def node_caller(instruction: str, funcs: dict[str, list[str]], stack: list[int]):
+    instruction_type = validator(instruction, funcs)
+    if instruction_type == Type.INVALID:
+        raise InvalidStructure
+    if instruction_type == Type.VALUE:
+        stack.append(int(instruction))
+        return
+    if instruction_type == Type.QUOTE:
+        sys.stdout.write(instruction[2:-1])
+        return
+    if instruction_type == Type.FUNC:
+        func_caller(funcs[instruction], funcs, stack)
+        return
+    match instruction:
+        case '.':
+            v = stack.pop(-1)
+            sys.stdout.write(str(v) + ' ')
+        case '+':
+            v2 = stack.pop(-1)
+            v1 = stack.pop(-1)
+            stack.append(v1 + v2)
+        case '-':
+            v2 = stack.pop(-1)
+            v1 = stack.pop(-1)
+            stack.append(v1 - v2)
+        case '*':
+            v2 = stack.pop(-1)
+            v1 = stack.pop(-1)
+            stack.append(v1 * v2)
+        case '/':
+            v2 = stack.pop(-1)
+            v1 = stack.pop(-1)
+            stack.append(v1 // v2)
+        case 'dup':
+            stack.append(stack[-1])
+        case 'swap':
+            stack[-2], stack[-1] = stack[-1], stack[-2]
+        case 'mod':
+            v2 = stack.pop(-1)
+            v1 = stack.pop(-1)
+            stack.append(v1 % v2)
+        case 'depth':
+            stack.append(len(stack))
+        case 'clearstack':
+            for _ in range(len(stack)):
+                stack.pop(-1)
+        case '=':
+            v2 = stack.pop(-1)
+            v1 = stack.pop(-1)
+            stack.append(-(v1 == v2))
+        case '>':
+            v2 = stack.pop(-1)
+            v1 = stack.pop(-1)
+            stack.append(-(v1 > v2))
+        case '<':
+            v2 = stack.pop(-1)
+            v1 = stack.pop(-1)
+            stack.append(-(v1 < v2))
+        case _:
+            raise InvalidStructure
 
 
 def func_caller(instructions: list[str], funcs:dict[str, list[str]], stack: list[int]):
@@ -44,168 +153,42 @@ def func_caller(instructions: list[str], funcs:dict[str, list[str]], stack: list
             continue
         if i == 'then':
             continue
-        if i.startswith('."') and i.endswith('"'):
+        if validator(i, funcs) == Type.QUOTE:
             sys.stdout.write(i[2:-1])
             continue
-        try:
-            if int(i):
-                stack.append(int(i))
-                continue
-        except:
-            pass
-        match i:
-            case '.':
-                v = stack.pop(-1)
-                sys.stdout.write(str(v) + ' ')
-            case '+':
-                v2 = stack.pop(-1)
-                v1 = stack.pop(-1)
-                stack.append(v1 + v2)
-            case '-':
-                v2 = stack.pop(-1)
-                v1 = stack.pop(-1)
-                stack.append(v1 - v2)
-            case '*':
-                v2 = stack.pop(-1)
-                v1 = stack.pop(-1)
-                stack.append(v1 * v2)
-            case '/':
-                v2 = stack.pop(-1)
-                v1 = stack.pop(-1)
-                stack.append(v1 // v2)
-            case 'dup':
-                stack.append(stack[-1])
-            case 'swap':
-                stack[-2], stack[-1] = stack[-1], stack[-2]
-            case 'mod':
-                v2 = stack.pop(-1)
-                v1 = stack.pop(-1)
-                stack.append(v1 % v2)
-            case 'depth':
-                stack.append(len(stack))
-            case 'clearstack':
-                for _ in range(len(stack)):
-                    stack.pop(-1)
-            case '=':
-                v2 = stack.pop(-1)
-                v1 = stack.pop(-1)
-                stack.append(-(v1 == v2))
-            case '>':
-                v2 = stack.pop(-1)
-                v1 = stack.pop(-1)
-                stack.append(-(v1 > v2))
-            case '<':
-                v2 = stack.pop(-1)
-                v1 = stack.pop(-1)
-                stack.append(-(v1 < v2))
-            case _:
-                if i in funcs:
-                    func_caller(funcs[i], funcs, stack)
-                    continue
-                else:
-                    raise InvalidStructure
+        if validator(i, funcs) == Type.VALUE:
+            stack.append(int(i))
+            continue
+        node_caller(i, funcs, stack)
 
 
 def caller(instructions: list[str], funcs:dict[str, list[str]], stack: list[int]):
-    quote_mode: bool = False
-    quote = ""
     func_mode: bool = False
     func_name = None
     func_instructions = []
     for i in instructions:
-        if quote_mode:
-            if '"' in i:
-                splited = i.split('"', maxsplit=1)
-                quote += splited[0]
-                if not func_mode:
-                    sys.stdout.write(quote)
-                else:
-                    func_instructions.append(f'." {quote}"')
-                quote_mode = False
-                if len(splited)==2:
-                    i = i.split('"', maxsplit=1)[1]
-                else:
-                    continue
-            else:
-                quote += f'{i} '
-                continue
-        if i == '."' and not quote_mode:
-            quote_mode = True
-            quote = ""
+        if i == ';' and func_mode:
+            func_mode = False
+            funcs[func_name] = func_instructions
+            func_name = ''
+            func_instructions = []
             continue
-        if not quote_mode:
-            if i == ';' and func_mode:
-                func_mode = False
-                funcs[func_name] = func_instructions
-                func_name = ''
-                func_instructions = []
-                continue
-            if func_mode and not func_name:
+        if func_mode and not func_name:
+            if validator(i, funcs) not in [Type.QUOTE, Type.BUILTIN, Type.VALUE]:
                 func_name = i
                 continue
-            if func_mode and func_name:
+            else:
+                raise InvalidStructure
+        if func_mode and func_name:
+            if validator(i, funcs) != Type.INVALID:
                 func_instructions.append(i)
-                continue
-            if i == ':' and not func_mode:
-                func_mode = True
-                continue
-            try:
-                if int(i):
-                    stack.append(int(i))
-                    continue
-            except:
-                pass
-            match i:
-                case '.':
-                    v = stack.pop(-1)
-                    sys.stdout.write(str(v) + ' ')
-                case '+':
-                    v2 = stack.pop(-1)
-                    v1 = stack.pop(-1)
-                    stack.append(v1+v2)
-                case '-':
-                    v2 = stack.pop(-1)
-                    v1 = stack.pop(-1)
-                    stack.append(v1 - v2)
-                case '*':
-                    v2 = stack.pop(-1)
-                    v1 = stack.pop(-1)
-                    stack.append(v1 * v2)
-                case '/':
-                    v2 = stack.pop(-1)
-                    v1 = stack.pop(-1)
-                    stack.append(v1 // v2)
-                case 'dup':
-                    stack.append(stack[-1])
-                case 'swap':
-                    stack[-2], stack[-1] = stack[-1], stack[-2]
-                case 'mod':
-                    v2 = stack.pop(-1)
-                    v1 = stack.pop(-1)
-                    stack.append(v1 % v2)
-                case 'depth':
-                    stack.append(len(stack))
-                case 'clearstack':
-                    for _ in range(len(stack)):
-                        stack.pop(-1)
-                case '=':
-                    v2 = stack.pop(-1)
-                    v1 = stack.pop(-1)
-                    stack.append(-(v1 == v2))
-                case '>':
-                    v2 = stack.pop(-1)
-                    v1 = stack.pop(-1)
-                    stack.append(-(v1 > v2))
-                case '<':
-                    v2 = stack.pop(-1)
-                    v1 = stack.pop(-1)
-                    stack.append(-(v1 < v2))
-                case _:
-                    if i in funcs:
-                        func_caller(funcs[i], funcs, stack)
-                        continue
-                    else:
-                        raise InvalidStructure
+            else:
+                raise InvalidStructure
+            continue
+        if i == ':' and not func_mode:
+            func_mode = True
+            continue
+        node_caller(i, funcs, stack)
 
 
 
@@ -217,10 +200,11 @@ def repl():
         sys.stdout.flush()
         instruction = sys.stdin.readline().strip('\n ')
         try:
-            caller(instruction.split(' '), funcs, stack)
+            caller(instruction_splitter(instruction), funcs, stack)
             sys.stdout.write(f' ok {len(stack)}')
         except Exception as e:
             sys.stdout.write(' ' + repr(e.__class__))
+            raise
         sys.stdout.write('\n')
         sys.stdout.flush()
 
