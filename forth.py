@@ -3,42 +3,56 @@ import sys
 class InvalidStructure(Exception): ...
 
 
+
 def func_caller(instructions: list[str], funcs:dict[str, list[str]], stack: list[int]):
-    run_state = True
     layer = 0
-    skip = False
-    for i in instructions:
+
+    if_pos: list[int] = [-1] * len(instructions)
+    else_pos: list[int] = [-1] * len(instructions)
+    then_pos:list[int] = [-1] * len(instructions)
+    for index, i in enumerate(instructions):
+        if i == 'if':
+            if_pos[layer] = index
+            layer += 1
+        if i == 'else':
+            else_pos[layer] = index
+        if i == 'then':
+            then_pos[layer] = index
+            layer -= 1
+    if_pos = [v for v in if_pos if v != -1]
+    else_pos = [v for v in else_pos if v != -1]
+    then_pos = [v for v in then_pos if v != -1]
+    if not (len(if_pos) == len(else_pos) == len(then_pos)):
+        raise InvalidStructure
+    fast_forward = -1
+    statement_value = {}
+    for index, i in enumerate(instructions):
+        if index < fast_forward:
+            continue
         if not i:
             continue
         if i == 'if':
-            if skip:
-                layer += 1
-                continue
-            run_state = stack.pop()
-            if not run_state:
-                skip = True
+            v = stack.pop()
+            statement_value[index] = bool(v)
+            statement_value[else_pos[if_pos.index(index)]] = not bool(v)
+            if not statement_value[index]:
+                fast_forward = else_pos[if_pos.index(index)]
             continue
         if i == 'else':
-            if run_state:
-                if skip:
-                    layer += 1
-                    continue
-                skip = True
-            if not layer and not run_state:
-                skip = False
+            if not statement_value[index]:
+                fast_forward = then_pos[else_pos.index(index)]
             continue
         if i == 'then':
-            if layer:
-                layer -= 1
-            continue
-        if layer or skip:
             continue
         if i.startswith('."') and i.endswith('"'):
             sys.stdout.write(i[2:-1])
             continue
-        if i.isdigit():
-            stack.append(int(i))
-            continue
+        try:
+            if int(i):
+                stack.append(int(i))
+                continue
+        except:
+            pass
         match i:
             case '.':
                 v = stack.pop(-1)
@@ -135,9 +149,12 @@ def caller(instructions: list[str], funcs:dict[str, list[str]], stack: list[int]
             if i == ':' and not func_mode:
                 func_mode = True
                 continue
-            if i.isdigit():
-                stack.append(int(i))
-                continue
+            try:
+                if int(i):
+                    stack.append(int(i))
+                    continue
+            except:
+                pass
             match i:
                 case '.':
                     v = stack.pop(-1)
